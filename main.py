@@ -65,11 +65,11 @@ class link:
    
 def addDC(rc, asn_dc, cost, capacity):
     #Create the router object for the DC
-    dc[f"{rc}:{asn_dc[-1]}"]= Router(asn_dc)
+    csp[f"{rc}:{asn_dc[-1]}"]= Router(asn_dc)
 
     #Add the link between the RC and the DC
-    csp[rc].links.append(link(dc[f"{rc}:{asn_dc[-1]}"], int(cost), int(capacity)))
-    dc[f"{rc}:{asn_dc[-1]}"].links.append(link(csp[rc], int(cost), int(capacity)))
+    csp[rc].links.append(link(csp[f"{rc}:{asn_dc[-1]}"], int(cost), int(capacity)))
+    csp[f"{rc}:{asn_dc[-1]}"].links.append(link(csp[rc], int(cost), int(capacity)))
 
 
 f =open("config.txt", "r")
@@ -78,7 +78,6 @@ local_rc, local_asn = f.readline().split()
 
 #Dicts to store ASNs
 csp = {}
-dc = {}
 
 #Key= RC_id Value= ASN
 csp[local_rc]= Router(f"ASN{local_asn}")
@@ -100,11 +99,11 @@ for i in range(int(f.readline())):
 
     #Create the router object for the DC
     #Key= RC_id:DC_id  Value=ASN:DC
-    dc[f"{local_rc}:{dc_id}"]= Router(f"ASN{local_asn}:DC{dc_id}")
+    csp[f"{local_rc}:{dc_id}"]= Router(f"ASN{local_asn}:DC{dc_id}")
 
     #Add the link between the local RC and the DC
-    csp[local_rc].links.append(link(dc[f"{local_rc}:{dc_id}"], int(co), int(cap)))
-    dc[f"{local_rc}:{dc_id}"].links.append(link(csp[local_rc], int(co), int(cap)))
+    csp[local_rc].links.append(link(csp[f"{local_rc}:{dc_id}"], int(co), int(cap)))
+    csp[f"{local_rc}:{dc_id}"].links.append(link(csp[local_rc], int(co), int(cap)))
 
 #Add links between the other RCs
 for k in csp.keys():
@@ -119,21 +118,19 @@ addDC("2", "ASN200:DC1", 1, 10)
 for i in range(5):
     for k in  csp.keys():
         csp[k].SayHello()
-    for k in dc.keys():
-        dc[k].SayHello()
-
 
 
 
 #Find optimal path
-for i in range (1,5):
+for v in csp.values():
     weight=999
     preferred= None
-    for p in dc["1:1"].paths:
-        if (p.destIP == f'ASN{i}00' and (p.Cost/p.Capacity)<weight):
+    for p in csp[local_rc].paths:
+        if (p.destIP == v.IP and (p.Cost/p.Capacity)<weight):
             preferred = p
             weight =p.Cost/p.Capacity
-    
+                
     print(preferred)
-            
+
+
             
