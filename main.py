@@ -62,49 +62,78 @@ class link:
         self.router = router
         self.cost = cost
         self.capacity = capacity
+   
+def addDC(rc, asn_dc, cost, capacity):
+    #Create the router object for the DC
+    dc[f"{rc}:{asn_dc[-1]}"]= Router(asn_dc)
 
-r1 = Router("ASN100")
-r2 = Router("ASN200")
-r3 = Router("ASN300")
-r4 = Router("ASN400")
-r5 = Router("ASN400:DC1")
+    #Add the link between the RC and the DC
+    csp[rc].links.append(link(dc[f"{rc}:{asn_dc[-1]}"], int(cost), int(capacity)))
+    dc[f"{rc}:{asn_dc[-1]}"].links.append(link(csp[rc], int(cost), int(capacity)))
 
-print(str(r5.paths))
-print("--------------------")
-r1.links.append(link(r2, 1, 1))
-r1.links.append(link(r3, 1, 1))
-r1.links.append(link(r4, 10, 1))
 
-r2.links.append(link(r1, 1, 1))
-r2.links.append(link(r3, 10, 1))
-r2.links.append(link(r4, 1, 1))
+f =open("config.txt", "r")
 
-r3.links.append(link(r1, 1, 1))
-r3.links.append(link(r2, 10, 1))
-r3.links.append(link(r4, 1, 1))
+local_rc, local_asn = f.readline().split()
 
-r4.links.append(link(r1, 10, 1))
-r4.links.append(link(r2, 1, 1))
-r4.links.append(link(r3, 1, 1))
-r4.links.append(link(r5, 0, 1))
+#Dicts to store ASNs
+csp = {}
+dc = {}
 
-r5.links.append(link(r4, 0, 1))
+#Key= RC_id Value= ASN
+csp[local_rc]= Router(f"ASN{local_asn}")
+
+for i in range(int(f.readline())):
+    #Get info on CSP
+    rc_id, asn, cap, co = f.readline().split()
+
+    #Create the router object for the RC
+    csp[rc_id]= Router(f"ASN{asn}")
+
+    #Add the link between the local RC and this RC
+    csp[local_rc].links.append(link(csp[rc_id], int(co), int(cap)))
+    csp[rc_id].links.append(link(csp[local_rc], int(co), int(cap)))
+        
+for i in range(int(f.readline())):
+    #Get info on the DCs
+    dc_id, cap, co = f.readline().split()
+
+    #Create the router object for the DC
+    #Key= RC_id:DC_id  Value=ASN:DC
+    dc[f"{local_rc}:{dc_id}"]= Router(f"ASN{local_asn}:DC{dc_id}")
+
+    #Add the link between the local RC and the DC
+    csp[local_rc].links.append(link(dc[f"{local_rc}:{dc_id}"], int(co), int(cap)))
+    dc[f"{local_rc}:{dc_id}"].links.append(link(csp[local_rc], int(co), int(cap)))
+
+#Add links between the other RCs
+for k in csp.keys():
+        for m in csp.keys():
+            if (k!= local_rc and m!= local_rc):
+                csp[k].links.append(link(csp[m], 999, 1))
+
+
+#Add info on DC obtained from RCU
+addDC("2", "ASN200:DC1", 1, 10)
 
 for i in range(5):
-    r1.SayHello()
-    r2.SayHello()
-    r3.SayHello()
-    r4.SayHello()
-    r5.SayHello()
+    for k in  csp.keys():
+        csp[k].SayHello()
+    for k in dc.keys():
+        dc[k].SayHello()
+
+
 
 
 #Find optimal path
 for i in range (1,5):
     weight=999
     preferred= None
-    for p in r5.paths:
+    for p in dc["1:1"].paths:
         if (p.destIP == f'ASN{i}00' and (p.Cost/p.Capacity)<weight):
             preferred = p
             weight =p.Cost/p.Capacity
     
     print(preferred)
+            
+            
