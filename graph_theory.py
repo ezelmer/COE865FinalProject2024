@@ -1,25 +1,45 @@
+import pika, sys, time
 import networkx as nx
-import matplotlib.pyplot as plt
-import time
+
+def on_message_received(ch, method, properties, body):
+
+    s_asn, d_asn, co, cp, dc_att =body.decode().split(';')
+    dc_att= eval(dc_att)
+
+    if s_asn != csp[local_rc]: 
+        addEdge(s_asn, d_asn, int(co), int(cp))
+        for i in range(len(dc_att)):
+            if (dc_att[i] != (0,0)):
+                addDC(s_asn, i+1, dc_att[i][0], dc_att[i][1])
+    
+        #print(f"RCU Link Update: {s_asn}-{d_asn}")
+    ch.basic_ack(delivery_tag=method.delivery_tag)
+
+def sendRCU(message):
+    channel.basic_publish(exchange='RCU', routing_key='', body=message)
+    print(f" [x] Sent {message}")
 
 def addDC(asn, dc_id, cost, cap):
     #Add to list
     if(f"ASN{asn}:DC{dc_id}" not in dc[csp.index(asn)]):
         dc[csp.index(asn)][dc_id-1] = f"{asn}:DC{dc_id}"
-    d_cost[csp.index(asn)][dc_id-1]= cost
-    d_cap[csp.index(asn)][dc_id-1]= cap
+    dc_attr[csp.index(asn)][dc_id-1] = (cost,cap)
 
 def addEdge(asn1, asn2, cost, cap):
+    #Update edge
+    if((asn1, asn2) in edge_list):
+        edge_cost[edge_list.index((asn1, asn2))] = cost
+        edge_cap[edge_list.index((asn1, asn2))] = cap
+    elif((asn2, asn1) in edge_list):
+        edge_cost[edge_list.index((asn2, asn1))] = cost
+        edge_cap[edge_list.index((asn2, asn1))] = cap  
+
     #New edge
-    if((asn1, asn2) not in edge_list):
+    else:
         edge_cost.append(cost)
         edge_cap.append(cap)
         edge_list.append((asn1,asn2))
-    #Update edge
-    else:
-        edge_cost[edge_list.index((asn1, asn2))] = cost
-        edge_cap[edge_list.index((asn1, asn2))] = cap
-
+    
 def getBW(g, path):
     cap= g[path[0]][path[1]]["capacity"]
     for i in range(len(path)-1):
@@ -37,7 +57,7 @@ def createGraph():
         for j in range(len(dc[i])):
             if dc[i][j] != '':
                 G.add_node(dc[i][j])
-                G.add_edge(csp[i], dc[i][j] , weight=d_cost[i][j]/d_cap[i][j], capacity=d_cap[i][j])
+                G.add_edge(csp[i], dc[i][j] , weight=dc_attr[i][j][0]/dc_attr[i][j][1], capacity=dc_attr[i][j][1])
 
     #Add edges
     for i in range(len(edge_list)):
@@ -76,13 +96,13 @@ def createGraph():
     '''
 
 RCU_TIMER =30
+num=int(sys.argv[1])
 
 #Lists to store the attributes of ASNs and DCs
 csp= ['' for x in range(10)]
 
 dc = [['' for x in range(10)] for y in range(10)]
-d_cost = [[0 for x in range(10)] for y in range(10)]
-d_cap = [[0 for x in range(10)] for y in range(10)]
+dc_attr = [[(0,0) for x in range(10)] for y in range(10)]
 
 #Lists to store the attributes of the links
 edge_cost = []
@@ -90,7 +110,7 @@ edge_cap  = []
 edge_list = []
 
 #Read from config
-f =open("config.txt", "r")
+f =open(f"config_{num}.txt", "r")
 local_rc, local_asn = f.readline().split()
 local_rc = int(local_rc)
 
@@ -118,35 +138,44 @@ for i in range(int(f.readline())):
 #Create Routing Tables
 createGraph()
 
+#Connect to RabbitMQ channel
+connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
+channel = connection.channel()
 
-############Simulate receiving info
-#Receive link info from ASN200
-addEdge("ASN200", "ASN300", 10, 1000)
-addEdge("ASN200", "ASN400", 10, 1000)
-#Receive DC info from ASN200
-addDC("ASN200", 1, 5, 1)
-addDC("ASN200", 2, 5, 2)
-addDC("ASN200", 3, 5, 3)
+channel.exchange_declare(exchange='RCU',exchange_type='fanout')
 
-#Receive link info from ASN300
-addEdge("ASN200", "ASN300", 10, 1000) #Duplicate edge, ignored (must be sent with asn1<asn2)
-addEdge("ASN300", "ASN400", 10, 1000)
-#Receive DC info from ASN300
-addDC("ASN300", 1, 5, 4)
-addDC("ASN300", 2, 5, 5)
+channel.queue_declare(queue=f'ASN{num}00')
+queue_state = channel.queue_declare(queue=f'ASN{num}00', durable=True, passive=True)
+queue_empty = queue_state.method.message_count == 0
 
-#Receive link info from ASN400
-addEdge("ASN200", "ASN400", 1, 1000) #Cost changed
-addEdge("ASN300", "ASN400", 10, 1000) #Duplicate edge, ignored (must be sent with asn1<asn2)
-#Receive DC info from ASN400
-addDC("ASN400", 1, 5, 6)
-addDC("ASN400", 2, 5, 7)
+channel.queue_bind(exchange='RCU', queue=f'ASN{num}00')
 
-#'''
+
+#Send initial RCU on bootup
+for e in edge_list:
+    if e[0] == csp[local_rc]:
+        i = edge_list.index(e)
+        sendRCU(f"{e[0]};{e[1]};{edge_cost[i]};{edge_cap[i]};{dc_attr[local_rc]}")
+
+
+t= time.time()
+
 while(True):
-    time.sleep(RCU_TIMER)
-    #SEND RCU TO ALL OTHER RC
+    #Check for messages in the queue
+    queue_state = channel.queue_declare(queue=f'ASN{num}00', durable=True, passive=True)
+    queue_empty = queue_state.method.message_count == 0
 
-    #Display routing table
-    createGraph()
-    
+    #Consume messages in the queue
+    if queue_state.method.message_count != 0:
+        method, properties, body = channel.basic_get(queue=f'ASN{num}00')
+        on_message_received(channel, method, properties, body)
+
+    if(time.time()-t > RCU_TIMER):
+        t=time.time()
+
+        for e in edge_list:
+            if e[0] == csp[local_rc]:
+                i = edge_list.index(e)
+                sendRCU(f"{e[0]};{e[1]};{edge_cost[i]};{edge_cap[i]};{dc_attr[local_rc]}")
+        
+        createGraph()
