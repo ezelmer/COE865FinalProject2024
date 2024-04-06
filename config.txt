@@ -1,8 +1,0 @@
-1 100             ; RCID ASN
-3	                ; No. of RCs connected
-2 200 1000 10	    ; RCID ASN Mbps $/Mbps
-3 300 10000 10    ; RCID ASN Mbps $/Mbps 
-4 400 1500 10 	  ; RCID ASN Mbps $/Mbps 
-2	                ; No. of DCs connected
-1 2 5 	          ; DC# Mbps $/Mbps
-2 5 5	            ; DC# Mbps $/Mbps
